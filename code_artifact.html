@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>終極賽博龐克硬體診斷儀</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js (GPU 3D 互動方塊) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Chart.js (記憶體儀表板) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        neon: {
+                            cyan: '#0ff',
+                            pink: '#f0f',
+                            green: '#39ff14',
+                            yellow: '#fcf821'
+                        },
+                        cyber: {
+                            dark: '#050505',
+                            card: '#0a0a0c',
+                            border: '#1a1a24'
+                        }
+                    },
+                    boxShadow: {
+                        'neon-cyan': '0 0 5px theme("colors.neon.cyan"), 0 0 20px theme("colors.neon.cyan")',
+                        'neon-pink': '0 0 5px theme("colors.neon.pink"), 0 0 20px theme("colors.neon.pink")',
+                        'card-glow': 'inset 0 0 20px rgba(0, 255, 255, 0.05), 0 0 15px rgba(0, 255, 255, 0.1)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #050505;
+            color: #a0aec0;
+            background-image: 
+                linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+        
+        .data-value {
+            font-family: 'Fira Code', monospace;
+            color: #fff;
+            text-shadow: 0 0 5px rgba(255,255,255,0.3);
+        }
+        
+        .cyber-card {
+            background-color: rgba(10, 10, 12, 0.85);
+            border: 1px solid #1a1a24;
+            backdrop-filter: blur(10px);
+            position: relative;
+            clip-path: polygon(0 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%);
+            transition: all 0.3s;
+        }
+        
+        .cyber-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 2px; height: 100%;
+            background: theme('colors.neon.cyan');
+            box-shadow: theme('boxShadow.neon-cyan');
+            opacity: 0.5;
+        }
+        
+        .cyber-card:hover {
+            border-color: theme('colors.neon.cyan');
+            box-shadow: theme('boxShadow.card-glow');
+        }
+
+        .cyber-title {
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 900;
+        }
+
+        /* 自訂電池動畫 */
+        .battery-body {
+            position: relative;
+            width: 80px; height: 36px;
+            border: 2px solid theme('colors.neon.green');
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+            padding: 2px;
+            display: flex; align-items: center;
+        }
+        .battery-cap {
+            position: absolute;
+            right: -6px; top: 50%;
+            transform: translateY(-50%);
+            width: 4px; height: 14px;
+            background-color: theme('colors.neon.green');
+            box-shadow: 0 0 5px theme('colors.neon.green');
+        }
+        .battery-level {
+            height: 100%;
+            transition: width 1s ease-in-out, background-color 0.5s ease;
+        }
+        
+        /* 隱藏捲軸 */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="min-h-screen p-2 md:p-6 text-xs md:text-sm">
+
+    <div class="max-w-[1400px] mx-auto">
+        <!-- 頂部標題 -->
+        <header class="flex flex-col md:flex-row justify-between items-end mb-6 pb-4 border-b border-neon-cyan/30 gap-4">
+            <div>
+                <h1 class="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-neon-cyan to-neon-pink cyber-title drop-shadow-[0_0_10px_rgba(0,255,255,0.5)]">
+                    SYS_DIAGNOSTICS // MAX_INFO
+                </h1>
+                <p class="text-neon-cyan/70 mt-2 font-mono tracking-widest text-xs">>>> ADVANCED_HARDWARE_AND_ENVIRONMENT_ANALYSIS_PROTOCOL_V2.0</p>
+            </div>
+            <button onclick="runAllDiagnostics()" class="bg-black/50 text-neon-cyan border border-neon-cyan hover:bg-neon-cyan/20 px-6 py-2 font-mono uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,255,255,0.2)] hover:shadow-[0_0_20px_rgba(0,255,255,0.6)]">
+                [ REBOOT_SCAN ]
+            </button>
+        </header>
+
+        <!-- 網格佈局 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+
+            <!-- 1. 系統與環境 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-neon-pink cyber-title text-lg border-b border-neon-pink/30 pb-2 mb-2 shadow-neon-pink flex justify-between">
+                    <span><i class="fa-solid fa-terminal mr-2"></i>系統與環境</span>
+                    <span class="text-[10px] text-neon-pink/50">SYS_ENV</span>
+                </h2>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>平台 / OS</span><span class="data-value text-neon-cyan" id="sys-platform">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>時區 (Timezone)</span><span class="data-value text-neon-cyan" id="sys-tz">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>語系 (Language)</span><span class="data-value text-neon-cyan" id="sys-lang">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>允許 Cookie</span><span class="data-value text-neon-cyan" id="sys-cookie">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>DNT (防追蹤)</span><span class="data-value text-neon-cyan" id="sys-dnt">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>PDF 檢視器支援</span><span class="data-value text-neon-cyan" id="sys-pdf">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>最大觸控點數</span><span class="data-value text-neon-cyan" id="sys-touch">...</span>
+                </div>
+                <div class="mt-2">
+                    <span class="block mb-1 text-xs text-gray-500">USER_AGENT_STRING:</span>
+                    <div class="bg-black border border-gray-800 p-2 text-[10px] text-gray-400 data-value break-all h-16 overflow-y-auto hide-scrollbar" id="sys-ua">...</div>
+                </div>
+            </div>
+
+            <!-- 2. 螢幕與視窗 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-neon-cyan cyber-title text-lg border-b border-neon-cyan/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-display mr-2"></i>螢幕與視窗</span>
+                    <span class="text-[10px] text-neon-cyan/50">DISPLAY_METRICS</span>
+                </h2>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>螢幕解析度</span><span class="data-value text-white" id="scr-res">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>可用螢幕區域</span><span class="data-value text-white" id="scr-avail">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>當前視窗大小</span><span class="data-value text-neon-yellow" id="scr-win">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>色彩深度 (Color)</span><span class="data-value text-white" id="scr-color">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>像素深度 (Pixel)</span><span class="data-value text-white" id="scr-pixel">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>裝置像素比 (DPR)</span><span class="data-value text-white" id="scr-dpr">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>螢幕方向</span><span class="data-value text-white" id="scr-orient">...</span>
+                </div>
+            </div>
+
+            <!-- 3. 網路狀態 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-neon-green cyber-title text-lg border-b border-neon-green/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-globe mr-2"></i>網路狀態</span>
+                    <span class="text-[10px] text-neon-green/50 px-2 py-0.5 border border-neon-green/50 rounded-sm bg-neon-green/10" id="net-badge">SCANNING</span>
+                </h2>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>連線類型</span><span class="data-value text-neon-green text-lg font-bold" id="net-type">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>下載頻寬評估</span><span class="data-value text-white" id="net-dl">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>延遲估計 (RTT)</span><span class="data-value text-white" id="net-rtt">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>節省數據模式</span><span class="data-value text-white" id="net-save">...</span>
+                </div>
+                
+                <!-- 裝飾用數位波動 -->
+                <div class="mt-auto pt-4 flex items-end h-12 gap-1 opacity-60">
+                    <div class="w-full bg-neon-green h-[20%] animate-[pulse_0.5s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[80%] animate-[pulse_1s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[40%] animate-[pulse_0.7s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[100%] animate-[pulse_1.2s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[60%] animate-[pulse_0.9s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[30%] animate-[pulse_0.6s_infinite]"></div>
+                    <div class="w-full bg-neon-green h-[90%] animate-[pulse_1.5s_infinite]"></div>
+                </div>
+            </div>
+
+            <!-- 4. 運算與記憶體 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-[#d946ef] cyber-title text-lg border-b border-[#d946ef]/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-microchip mr-2"></i>運算與記憶體</span>
+                    <span class="text-[10px] text-[#d946ef]/50">COMPUTE_UNIT</span>
+                </h2>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>邏輯核心數</span><span class="data-value text-2xl text-[#d946ef] font-bold shadow-neon-pink" id="cpu-cores">...</span>
+                </div>
+                
+                <!-- Chart.js 記憶體儀表板 -->
+                <div class="relative w-full h-32 mt-4">
+                    <canvas id="memory-chart"></canvas>
+                    <div class="absolute bottom-0 left-1/2 transform -translate-x-1/2 text-center w-full">
+                        <span class="text-[10px] text-gray-500 block">裝置回報記憶體 (GB)</span>
+                        <span class="text-white data-value text-xl font-bold" id="mem-text">...</span>
+                    </div>
+                </div>
+                <p class="text-[10px] text-gray-600 text-center mt-2 border-t border-gray-800 pt-2">* 基於安全考量，瀏覽器會限制最大回報核心與記憶體數值。</p>
+            </div>
+
+            <!-- 5. 圖形與 GPU -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-neon-yellow cyber-title text-lg border-b border-neon-yellow/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-vr-cardboard mr-2"></i>圖形與 GPU</span>
+                    <span class="text-[10px] text-neon-yellow/50 px-1 border border-neon-yellow/30" id="gpu-status">SCANNING</span>
+                </h2>
+                <div class="flex flex-col border-b border-gray-800 pb-2 mb-1">
+                    <span class="text-xs text-gray-500">GPU Vendor</span>
+                    <span class="data-value text-white text-xs break-all" id="gpu-vendor">...</span>
+                </div>
+                <div class="flex flex-col border-b border-gray-800 pb-2 mb-1">
+                    <span class="text-xs text-gray-500">GPU Renderer</span>
+                    <span class="data-value text-neon-yellow text-xs break-all" id="gpu-renderer">...</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="text-gray-500 block">WebGL Version</span>
+                        <span class="data-value text-white" id="gpu-webgl-v">...</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 block">Max Texture Size</span>
+                        <span class="data-value text-white" id="gpu-tex">...</span>
+                    </div>
+                </div>
+                
+                <!-- Three.js Interactive Cube -->
+                <div class="mt-3 relative w-full h-28 border border-neon-yellow/30 bg-black cursor-move flex items-center justify-center overflow-hidden" id="gpu-canvas-container">
+                    <div class="absolute top-1 left-1 text-[9px] text-neon-yellow/50 pointer-events-none">>> INTERACTIVE_3D_TEST</div>
+                </div>
+            </div>
+
+            <!-- 6. 電池狀態 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-neon-green cyber-title text-lg border-b border-neon-green/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-car-battery mr-2" id="bat-icon"></i>能源狀態</span>
+                    <span class="text-[10px] text-neon-green/50">POWER_CELL</span>
+                </h2>
+                
+                <div class="flex justify-center my-2">
+                    <div class="battery-body">
+                        <div class="battery-cap border-y border-r border-neon-green/50"></div>
+                        <div id="bat-fill" class="battery-level bg-neon-green w-0 shadow-[0_0_10px_theme('colors.neon.green')]"></div>
+                        <i id="bat-charge-icon" class="fa-solid fa-bolt absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white opacity-0 text-xl drop-shadow-[0_0_8px_rgba(255,255,255,1)] z-10 transition-opacity"></i>
+                    </div>
+                </div>
+
+                <div class="text-center mb-2">
+                    <span class="text-3xl font-bold data-value text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" id="bat-level">0%</span>
+                </div>
+
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>充電狀態</span><span class="data-value text-white" id="bat-status">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>充滿剩餘時間</span><span class="data-value text-white" id="bat-charge-time">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>放電剩餘時間</span><span class="data-value text-white" id="bat-discharge-time">...</span>
+                </div>
+            </div>
+
+            <!-- 7. 儲存空間 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-orange-500 cyber-title text-lg border-b border-orange-500/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-hard-drive mr-2"></i>站點儲存配額</span>
+                    <span class="text-[10px] text-orange-500/50">STORAGE_QUOTA</span>
+                </h2>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>總配額 (Quota)</span><span class="data-value text-white" id="sto-quota">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>已使用 (Used)</span><span class="data-value text-orange-400 font-bold" id="sto-used">...</span>
+                </div>
+                <div class="flex justify-between border-b border-gray-800 pb-1">
+                    <span>剩餘可用 (Available)</span><span class="data-value text-white" id="sto-avail">...</span>
+                </div>
+                
+                <div class="mt-4 pt-2">
+                    <div class="flex justify-between text-[10px] mb-1">
+                        <span>USAGE</span>
+                        <span id="sto-pct-text">0%</span>
+                    </div>
+                    <div class="w-full bg-black border border-orange-500/30 h-4 relative">
+                        <div id="sto-bar" class="bg-orange-500 h-full absolute top-0 left-0 shadow-[0_0_10px_theme('colors.orange.500')] transition-all duration-1000" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 8. 多媒體與音訊 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-cyan-300 cyber-title text-lg border-b border-cyan-300/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-satellite-dish mr-2"></i>多媒體與音訊</span>
+                    <span class="text-[10px] text-cyan-300/50">MEDIA_SENSORS</span>
+                </h2>
+                <div class="bg-black/50 border border-gray-800 p-2 mb-2">
+                    <div class="flex justify-between pb-1">
+                        <span class="text-gray-400">AudioContext 取樣率</span>
+                        <span class="data-value text-cyan-300" id="aud-sample">...</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">最大音軌輸出數</span>
+                        <span class="data-value text-cyan-300" id="aud-channel">...</span>
+                    </div>
+                </div>
+
+                <span class="text-xs text-gray-500 block mb-1">偵測到的硬體裝置數 (需授權)：</span>
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="border border-gray-800 bg-black py-2 flex flex-col">
+                        <i class="fa-solid fa-microphone text-cyan-300 mb-1 text-lg"></i>
+                        <span class="data-value font-bold text-lg" id="med-mic">-</span>
+                        <span class="text-[10px]">麥克風</span>
+                    </div>
+                    <div class="border border-gray-800 bg-black py-2 flex flex-col">
+                        <i class="fa-solid fa-video text-cyan-300 mb-1 text-lg"></i>
+                        <span class="data-value font-bold text-lg" id="med-cam">-</span>
+                        <span class="text-[10px]">攝影機</span>
+                    </div>
+                    <div class="border border-gray-800 bg-black py-2 flex flex-col">
+                        <i class="fa-solid fa-volume-high text-cyan-300 mb-1 text-lg"></i>
+                        <span class="data-value font-bold text-lg" id="med-spk">-</span>
+                        <span class="text-[10px]">揚聲器</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 9. 進階 API 支援度 -->
+            <div class="cyber-card p-5 flex flex-col gap-3">
+                <h2 class="text-purple-400 cyber-title text-lg border-b border-purple-400/30 pb-2 mb-2 flex justify-between">
+                    <span><i class="fa-solid fa-cubes mr-2"></i>進階 API 模組</span>
+                    <span class="text-[10px] text-purple-400/50">MODULE_SUPPORT</span>
+                </h2>
+                <div class="grid grid-cols-2 gap-y-3 gap-x-4">
+                    <!-- Bluetooth -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-brands fa-bluetooth-b text-blue-500 w-4"></i> Bluetooth</span>
+                        <span id="api-bt">...</span>
+                    </div>
+                    <!-- USB -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-brands fa-usb text-gray-300 w-4"></i> WebUSB</span>
+                        <span id="api-usb">...</span>
+                    </div>
+                    <!-- Geolocation -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-solid fa-location-dot text-red-500 w-4"></i> Location</span>
+                        <span id="api-geo">...</span>
+                    </div>
+                    <!-- WebXR -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-solid fa-vr-cardboard text-purple-500 w-4"></i> WebXR</span>
+                        <span id="api-xr">...</span>
+                    </div>
+                    <!-- Gamepad -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-solid fa-gamepad text-green-500 w-4"></i> Gamepad</span>
+                        <span id="api-pad">...</span>
+                    </div>
+                    <!-- NFC -->
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-1">
+                        <span><i class="fa-solid fa-wifi text-cyan-400 w-4"></i> WebNFC</span>
+                        <span id="api-nfc">...</span>
+                    </div>
+                </div>
+                <div class="mt-auto text-[10px] text-gray-600 text-center border-t border-gray-800 pt-2">
+                    ✓ = 原生支援 | ✗ = 瀏覽器不支援
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // 共用工具
+        const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+        const setHtml = (id, val) => { const el = document.getElementById(id); if(el) el.innerHTML = val; };
+        const getFormatSize = (bytes) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        // 1. 系統與環境
+        const testSystem = () => {
+            setVal('sys-ua', navigator.userAgent);
+            let platform = navigator.platform || 'N/A';
+            if (navigator.userAgentData && navigator.userAgentData.platform) platform = navigator.userAgentData.platform;
+            setVal('sys-platform', platform);
+            setVal('sys-tz', Intl.DateTimeFormat().resolvedOptions().timeZone || 'N/A');
+            setVal('sys-lang', navigator.language || 'N/A');
+            setVal('sys-cookie', navigator.cookieEnabled ? 'True' : 'False');
+            setVal('sys-dnt', navigator.doNotTrack === "1" ? '開啟 (1)' : '未開啟 (或不支援)');
+            setVal('sys-pdf', 'pdfViewerEnabled' in navigator ? (navigator.pdfViewerEnabled ? '支援' : '不支援') : 'N/A');
+            setVal('sys-touch', navigator.maxTouchPoints > 0 ? navigator.maxTouchPoints : '0 (無觸控)');
+        };
+
+        // 2. 螢幕與視窗
+        const testScreen = () => {
+            setVal('scr-res', `${screen.width} × ${screen.height}`);
+            setVal('scr-avail', `${screen.availWidth} × ${screen.availHeight}`);
+            setVal('scr-win', `${window.innerWidth} × ${window.innerHeight}`);
+            setVal('scr-color', `${screen.colorDepth}-bit`);
+            setVal('scr-pixel', `${screen.pixelDepth}-bit`);
+            setVal('scr-dpr', window.devicePixelRatio || 1);
+            setVal('scr-orient', screen.orientation ? screen.orientation.type : 'N/A');
+        };
+        window.addEventListener('resize', () => setVal('scr-win', `${window.innerWidth} × ${window.innerHeight}`));
+
+        // 3. 網路狀態
+        const testNetwork = () => {
+            const badge = document.getElementById('net-badge');
+            if (navigator.onLine) {
+                badge.textContent = 'ONLINE';
+                badge.className = 'text-[10px] text-neon-green/90 px-2 py-0.5 border border-neon-green rounded-sm bg-neon-green/20';
+            } else {
+                badge.textContent = 'OFFLINE';
+                badge.className = 'text-[10px] text-red-500/90 px-2 py-0.5 border border-red-500 rounded-sm bg-red-500/20 animate-pulse';
+            }
+
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (conn) {
+                setVal('net-type', conn.effectiveType ? conn.effectiveType.toUpperCase() : 'N/A');
+                setVal('net-dl', conn.downlink ? `${conn.downlink} Mbps` : 'N/A');
+                setVal('net-rtt', conn.rtt ? `${conn.rtt} ms` : 'N/A');
+                setVal('net-save', conn.saveData ? '開啟 (True)' : '關閉 (False)');
+                
+                if (!conn._listened) {
+                    conn.addEventListener('change', testNetwork);
+                    conn._listened = true;
+                }
+            } else {
+                ['net-type', 'net-dl', 'net-rtt', 'net-save'].forEach(id => setVal(id, '不支援此 API'));
+            }
+        };
+        window.addEventListener('online', testNetwork);
+        window.addEventListener('offline', testNetwork);
+
+        // 4. 運算與記憶體
+        let memChart = null;
+        const testCompute = () => {
+            const cores = navigator.hardwareConcurrency || 'N/A';
+            const ram = navigator.deviceMemory || 8; 
+            
+            setVal('cpu-cores', cores);
+            setVal('mem-text', navigator.deviceMemory ? `${ram} GB` : '未知 (預設8)');
+
+            const ctx = document.getElementById('memory-chart').getContext('2d');
+            if (memChart) memChart.destroy();
+            
+            Chart.defaults.color = '#a0aec0';
+            Chart.defaults.font.family = "'Fira Code', monospace";
+
+            memChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Device RAM', 'Unknown/Restricted'],
+                    datasets: [{
+                        data: [ram, Math.max(0, 16 - ram)],
+                        backgroundColor: ['#d946ef', '#1a1a24'],
+                        borderColor: ['#f0f', '#333'],
+                        borderWidth: 1,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    circumference: 180,
+                    rotation: -90,
+                    cutout: '75%',
+                    plugins: { legend: { display: false } }
+                }
+            });
+        };
+
+        // 5. 圖形與 GPU (Three.js 互動 3D 方塊)
+        let threeInit = false;
+        const testGPU = () => {
+            const canvas = document.createElement('canvas');
+            let gl;
+            try { gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl'); } catch (e) {}
+
+            if (!gl) {
+                setVal('gpu-status', 'ERROR');
+                setVal('gpu-vendor', 'N/A'); setVal('gpu-renderer', 'N/A');
+                setVal('gpu-webgl-v', 'N/A'); setVal('gpu-tex', 'N/A');
+            } else {
+                setVal('gpu-status', 'WebGL_OK');
+                const ext = gl.getExtension('WEBGL_debug_renderer_info');
+                setVal('gpu-vendor', ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : '被隱藏');
+                setVal('gpu-renderer', ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '被隱藏');
+                setVal('gpu-webgl-v', gl.getParameter(gl.VERSION));
+                setVal('gpu-tex', gl.getParameter(gl.MAX_TEXTURE_SIZE));
+            }
+
+            if(!threeInit) {
+                initCyberCube();
+                threeInit = true;
+            }
+        };
+
+        const initCyberCube = () => {
+            const container = document.getElementById('gpu-canvas-container');
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            // 賽博龐克風格方塊 (黃色霓虹線條)
+            const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+            const edges = new THREE.EdgesGeometry(geometry);
+            const material = new THREE.LineBasicMaterial({ color: 0xfcf821, linewidth: 2 });
+            const cube = new THREE.LineSegments(edges, material);
+            scene.add(cube);
+
+            // 內部發光核心
+            const innerGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const innerMat = new THREE.MeshBasicMaterial({ color: 0xfcf821, transparent: true, opacity: 0.2, wireframe: true });
+            const innerCube = new THREE.Mesh(innerGeo, innerMat);
+            scene.add(innerCube);
+
+            camera.position.z = 2.5;
+
+            // 互動拖曳
+            let isDragging = false, prev = { x: 0, y: 0 };
+            
+            const onDown = (x, y) => { isDragging = true; prev = { x, y }; container.style.cursor = 'grabbing'; };
+            const onUp = () => { isDragging = false; container.style.cursor = 'move'; };
+            const onMove = (x, y) => {
+                if (isDragging) {
+                    const delta = { x: x - prev.x, y: y - prev.y };
+                    cube.rotation.y += delta.x * 0.01; cube.rotation.x += delta.y * 0.01;
+                    innerCube.rotation.y += delta.x * 0.01; innerCube.rotation.x += delta.y * 0.01;
+                    prev = { x, y };
+                }
+            };
+
+            container.addEventListener('mousedown', (e) => onDown(e.offsetX, e.offsetY));
+            window.addEventListener('mouseup', onUp);
+            window.addEventListener('mousemove', (e) => {
+                const rect = container.getBoundingClientRect();
+                onMove(e.clientX - rect.left, e.clientY - rect.top);
+            });
+            // Touch
+            container.addEventListener('touchstart', (e) => { e.preventDefault(); const r = container.getBoundingClientRect(); onDown(e.touches[0].clientX-r.left, e.touches[0].clientY-r.top); }, {passive: false});
+            window.addEventListener('touchend', onUp);
+            window.addEventListener('touchmove', (e) => { if(isDragging){ const r = container.getBoundingClientRect(); onMove(e.touches[0].clientX-r.left, e.touches[0].clientY-r.top); } }, {passive: false});
+
+            const animate = () => {
+                requestAnimationFrame(animate);
+                if(!isDragging) {
+                    cube.rotation.x += 0.01; cube.rotation.y += 0.01;
+                    innerCube.rotation.x -= 0.005; innerCube.rotation.y -= 0.005;
+                }
+                renderer.render(scene, camera);
+            };
+            animate();
+        };
+
+        // 6. 電池狀態
+        const formatTime = (s) => (!s || s === Infinity) ? '計算中...' : `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+        const updateBatUI = (b) => {
+            const lvl = Math.round(b.level * 100);
+            setVal('bat-level', `${lvl}%`);
+            
+            setVal('bat-status', b.charging ? (lvl===100?'已充滿 (100%)':'充電中 (CHARGING)') : '放電中 (DISCHARGING)');
+            setVal('bat-charge-time', (b.charging && lvl !== 100) ? formatTime(b.chargingTime) : 'N/A');
+            setVal('bat-discharge-time', !b.charging ? formatTime(b.dischargingTime) : 'N/A');
+
+            const bar = document.getElementById('bat-fill');
+            const icon = document.getElementById('bat-charge-icon');
+            const titleIcon = document.getElementById('bat-icon');
+            
+            bar.style.width = `${lvl}%`;
+
+            if (b.charging) {
+                bar.style.backgroundColor = '#39ff14'; bar.style.boxShadow = '0 0 10px #39ff14';
+                icon.style.opacity = '1';
+                titleIcon.className = 'fa-solid fa-plug-circle-bolt mr-2 text-white drop-shadow-[0_0_5px_#39ff14]';
+            } else {
+                icon.style.opacity = '0';
+                if (lvl > 50) { bar.style.backgroundColor = '#39ff14'; bar.style.boxShadow = '0 0 10px #39ff14'; titleIcon.className = 'fa-solid fa-battery-three-quarters mr-2'; }
+                else if (lvl > 20) { bar.style.backgroundColor = '#fcf821'; bar.style.boxShadow = '0 0 10px #fcf821'; titleIcon.className = 'fa-solid fa-battery-quarter mr-2 text-neon-yellow'; }
+                else { bar.style.backgroundColor = '#ff003c'; bar.style.boxShadow = '0 0 10px #ff003c'; titleIcon.className = 'fa-solid fa-battery-empty mr-2 text-red-500 animate-pulse'; }
+            }
+        };
+
+        const testBattery = async () => {
+            if ('getBattery' in navigator) {
+                try {
+                    const b = await navigator.getBattery();
+                    b.onlevelchange = () => updateBatUI(b);
+                    b.onchargingchange = () => updateBatUI(b);
+                    b.onchargingtimechange = () => updateBatUI(b);
+                    b.ondischargingtimechange = () => updateBatUI(b);
+                    updateBatUI(b);
+                } catch (e) { setVal('bat-status', '存取遭拒'); }
+            } else {
+                setVal('bat-status', '不支援 API');
+            }
+        };
+
+        // 7. 儲存空間
+        const testStorage = async () => {
+            if (navigator.storage && navigator.storage.estimate) {
+                try {
+                    const est = await navigator.storage.estimate();
+                    const quota = getFormatSize(est.quota);
+                    const usage = getFormatSize(est.usage);
+                    const avail = getFormatSize(est.quota - est.usage);
+                    const pct = ((est.usage / est.quota) * 100).toFixed(2);
+
+                    setVal('sto-quota', quota);
+                    setVal('sto-used', usage);
+                    setVal('sto-avail', avail);
+                    setVal('sto-pct-text', `${pct}%`);
+                    document.getElementById('sto-bar').style.width = `${pct}%`;
+                } catch (e) { setVal('sto-quota', 'Error'); }
+            } else {
+                setVal('sto-quota', '不支援 API'); setVal('sto-used', 'N/A'); setVal('sto-avail', 'N/A');
+            }
+        };
+
+        // 8. 多媒體與音訊
+        const testMedia = async () => {
+            // Audio Context Info
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if(AudioCtx) {
+                    const ctx = new AudioCtx();
+                    setVal('aud-sample', `${ctx.sampleRate} Hz`);
+                    setVal('aud-channel', ctx.destination.maxChannelCount);
+                    if(ctx.state === 'running') ctx.close();
+                } else {
+                    setVal('aud-sample', '不支援'); setVal('aud-channel', '不支援');
+                }
+            } catch(e) { setVal('aud-sample', '需互動'); setVal('aud-channel', '需互動'); }
+
+            // Media Devices
+            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                try {
+                    const devs = await navigator.mediaDevices.enumerateDevices();
+                    let mic=0, cam=0, spk=0;
+                    devs.forEach(d => {
+                        if (d.kind === 'audioinput') mic++;
+                        if (d.kind === 'videoinput') cam++;
+                        if (d.kind === 'audiooutput') spk++;
+                    });
+                    setVal('med-mic', mic); setVal('med-cam', cam); setVal('med-spk', spk);
+                } catch(e) { setVal('med-mic', 'ERR'); }
+            } else {
+                setVal('med-mic', 'N/A'); setVal('med-cam', 'N/A'); setVal('med-spk', 'N/A');
+            }
+        };
+
+        // 9. 進階 API 支援度
+        const checkAPI = (id, condition) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (condition) {
+                el.innerHTML = '<span class="text-neon-green font-bold text-sm shadow-[0_0_5px_#39ff14]">✓ 支援</span>';
+            } else {
+                el.innerHTML = '<span class="text-gray-600 font-bold text-sm">✗ 否</span>';
+            }
+        };
+
+        const testAPIs = () => {
+            checkAPI('api-bt', 'bluetooth' in navigator);
+            checkAPI('api-usb', 'usb' in navigator);
+            checkAPI('api-geo', 'geolocation' in navigator);
+            checkAPI('api-xr', 'xr' in navigator);
+            checkAPI('api-pad', 'getGamepads' in navigator);
+            checkAPI('api-nfc', 'NDEFReader' in window);
+        };
+
+        // 執行所有
+        const runAllDiagnostics = () => {
+            testSystem();
+            testScreen();
+            testNetwork();
+            testCompute();
+            testGPU();
+            testBattery();
+            testStorage();
+            testMedia();
+            testAPIs();
+        };
+
+        window.onload = runAllDiagnostics;
+    </script>
+</body>
+</html>
